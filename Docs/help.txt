@@ -1,0 +1,78 @@
+C0C9 = VAR1  = positions pointer + 1
+C0CB = VAR2  = ornament pointer
+C0CD = VAR3  = patterns pointer
+C0CF = SMC1  = samples pointer
+C0D1 = VAR4  = tempo
+C0D2 = SMC2  = tick counter
+C0D3 = VAR5  = positions count + 1
+C0D4 = VAR6  = Channel A pattern data pointer
+C0D6 = SMC3  = Channel B pattern data pointer
+C0D8 = VAR7  = Channel C pattern data pointer
+
+C0DA = REF1  = 0xFF (always)
+
+Channel A start = Zero area start
+
+Channel A:
+C0DB = REF2  = IX - 2 = Envelope state
+C0DC = REF3  = IX - 1 = New note counter initial value
+C0DD = REF4  = IX + 0 = Current sample position
+C0DE         = IX + 1 = Current note
+C0DF         = IX + 2 = New note counter
+C0E0 = VAR8  = IX + 3 = Sample pointer + 1
+C0E2 = VAR9  = IX + 5 = Ornament pointer + 1
+C0E4 = VAR10 = IX + 7 = Sample points left (0xFF = disabled)
+
+Channel B (the same structure as A):
+C0E5
+C0E7         = Channel B IX
+C0EC = VAR11 = Ornament pointer + 1
+C0EE = VAR12 =
+
+Channel C (the same structure as A):
+C0EF
+C0F1         = Channel C IX
+C0F6 = VAR14 = Ornament pointer + 1
+
+
+C0F9 = VAR15 = Current position number
+
+AY:
+
+C0FA = VAR16 = Tone A period
+C0FC = VAR17 = Tone B period
+C0FE = VAR18 = Tone C period
+C100 = Noise period
+C101 = Output enable mixer
+C102 = REF5 = Volume A
+C103 = REF6 = Volume B
+C104 = REF7 = Volume C
+C105 = VAR19 = Envelope period
+C107 = VAR20 = Envelope shape
+
+*** Subs ***
+
+SUB1:
+if [HL] = A then ret
+HL += BC
+goto SUB1
+
+
+SUB2:
+BC = START
+DE = [HL] + START
+HL += 2
+
+SUB3:
+BC = START
+DE = HL + START
+
+SUB5:
+Get next pattern
+
+SUB7:
+Process pattern data
+
+LBL5:
+Main playback
+

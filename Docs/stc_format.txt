@@ -1,0 +1,122 @@
+Z-80 Disasm:
+https://86rk.ru/disassm/
+
+From:
+https://www.avray.ru/%D1%84%D0%BE%D1%80%D0%BC%D0%B0%D1%82-%D1%84%D0%B0%D0%B9%D0%BB%D0%B0-stc-sound-tracker/
+
+STC File Format (Sound Tracker)
+Full Sound Tracker ZX-Spectrum compilled module description
+Updated 07.12.2015
+STC format of Sound Tracker for ZX-Spectrum is simple according with other tracker formats.
+
+ 
+
+STC file structure:
+Offset Size  Name               Description
++0     1     Delay              Global delay in interrupts
++1     2     Positions Pointer  
++3     2     Ornaments Pointer  
++5     2     Patterns Pointer   
++7     18    Identifier         'SONG BY ST COMPILE' or anything else
++25    2     Size               Full length in bytes (may be incorrect)
++27    99*X  Samples Pointer    Samples, 99 bytes per sample
+                                the first byte is sample number
+                                may be in wrong order, so you must check
+                                sample numbers of each sample to find correct,
+                                X = 1-16
++27+99*X     Data               Other data
+Sample format
+Samle length is 99 bytes (32 positions)
+
+ Off Size Name          Description
+ +0  1    Sample Number
+ +1  32*3 Data          samples data (3 bytes per each)
+         - byte 0 - bits 0-3 volume,
+                    bits 7-4 for low bits of high byte of pitch
+         - byte 1 - 
+                  - bit 7 noise mask (0 - enabled, 1 - disabled)
+                  - bit 6 tone mask (0 - enabled, 1 - disabled)
+                  - bit 5 +- determines the direction of pitch shift
+                         (1 +, 0 -)
+                  - bits 0-4 noise value
+         - byte 2 - pitch (low byte)
+ +97 1    Repeat Position - sample & ornament repeat position
+                     (if equal to 0, the channel is disabled at the end of sample)
+ +98 1    Repeat Length - the length of repeat
+PS: if Repeat Length is higher then sample positions left then position starts from zero
+
+Ornament format
+Full ornament length is 33 bytes (32 positions changed together with sample)
+
+ Off  Size   Name            Description
+ +0   1      Ornament Number 
+ +1   32byte Data            each byte is value of 12 half tones (1 octave) signed!
+ 
+
+Pattern Format (for each channel)
+Values in pattern
+ 0x00-0x5f - note number after receive should finish position
+ 0x60-0x6f - sample number -0x60
+             there are no zero sample             
+ 0x70-0x7f - ornament number -0x70
+             disable envelope
+             if zero value - disable ornament
+ 0x80      - command R (pause) (disable channel and finish position)
+ 0x81      - empty note (do nothing but finish position)
+ 0x82      - disable envelope and ornament
+ 0x83-0x8e - envelope value -0x80 (3 - 14)
+             (next byte is low byte of envelope period)
+             also disable ornament
+ 0x8f-0xa0 - impssible values in pattern
+             (for future developement)
+ 0xa1-0xfe - delay between notes in channel (in interrupts) - 0xa1
+ 0xff      - end of pattern
+ 
+
+Patterns table format
+ Each pattern record is 7 bytes
+
+ Off Size Name         Description
+ +0  1    Number       Pattern number
+ +1  2    Address Ch A Pattern of channel A offset
+ +3  2    Address Ch B Pattern of channel B offset
+ +5  2    Address Ch C Pattern of channel C offset
+Positions table format
+ Off  Size     Name      Description
+ +0   1        Count     Number of positions in table
+ +1   Count*2  Positions Positions data
+ Each position record is 2 bytes
+
+ 
+ Off Size Name           Description
+ +0  1    Transposition  Global Tone offset for pattern
+ +1  1    PatternNum     Pattarn Number for this position
+ 
+
+Note frequency table
+ static ushort[] ST_Table = { 
+    0xef8, 0xe10, 0xd60, 0xc80, 0xbd8, 0xb28, 0xa88, 0x9f0, 0x960, 0x8e0,
+    0x858, 0x7e0, 0x77c, 0x708, 0x6b0, 0x640, 0x5ec, 0x594, 0x544, 0x4f8,
+    0x4b0, 0x470, 0x42c, 0x3f0, 0x3be, 0x384, 0x358, 0x320, 0x2f6, 0x2ca,
+    0x2a2, 0x27c, 0x258, 0x238, 0x216, 0x1f8, 0x1df, 0x1c2, 0x1ac, 0x190,
+    0x17b, 0x165, 0x151, 0x13e, 0x12c, 0x11c, 0x10b, 0x0fc, 0x0ef, 0x0e1,
+    0x0d6, 0x0c8, 0x0bd, 0x0b2, 0x0a8, 0x09f, 0x096, 0x08e, 0x085, 0x07e,
+    0x077, 0x070, 0x06b, 0x064, 0x05e, 0x059, 0x054, 0x04f, 0x04b, 0x047,
+    0x042, 0x03f, 0x03b, 0x038, 0x035, 0x032, 0x02f, 0x02c, 0x02a, 0x027,
+    0x025, 0x023, 0x021, 0x01f, 0x01d, 0x01c, 0x01a, 0x019, 0x017, 0x016,
+    0x015, 0x013, 0x012, 0x011, 0x010, 0x00f
+ };
+ 
+
+Format features
+Number of octaves: 8
+
+Number of positions: 1-256
+
+Number of patterns: 1-32
+
+Number of positions in pattern: 1-64
+
+Number of samples: 16
+
+Number of ornaments: 16

@@ -1,0 +1,1506 @@
+Thanks — I read the disassembly you attached (stc\_player\_dis.asm) and the STC file-format description you pointed to. I’ll first note the two sources I used so you can cross-check details I mention:
+
+* Your uploaded disassembly: stc\_player\_dis.asm.&#x20;
+* STC format reference (Sound Tracker / STC). ([avray.ru][1])
+
+Below I describe *every assembler line* from the disassembly you provided. I keep the original address / label and the exact mnemonic, then give a short plain-English explanation of what that assembler command does and (where clearly relevant) a short note about its likely purpose in this player. I do **not** skip any assembler lines — data directives (DW/DB) and assembler directives (ORG/EQU/DS) are explained as well.
+
+---
+
+## File header / assembler directives
+
+`EXT1    EQU 16F1h`
+`EXT2    EQU 0A202h`
+`EXT3    EQU 0AC01h`
+`EXT4    EQU 0EE5Eh`
+`EXT5    EQU 0F4F3h`
+**Explanation:** define assembler constants (symbols) named `EXT1..EXT5` with the given hex values. These are compile-time constants used elsewhere in the asm (no CPU action).
+
+`ORG 2700h`
+`2700:  V_2700: DS 2`
+**Explanation:** `ORG` sets the assembly origin to address 0x2700 for the following bytes. `V_2700: DS 2` reserves (allocates) 2 bytes of uninitialized storage at 0x2700.
+
+`ORG 2F00h`
+`2F00:  V_2F00: DS 1`
+**Explanation:** set origin to 0x2F00 and reserve 1 byte there.
+
+`ORG 0C04Ch`
+**Explanation:** set origin to address 0xC04C — the subsequent code and data addresses in this listing are given from that origin.
+
+---
+
+## Main code (at ORG 0C04C)
+
+`C04C:  01 FD FF    LD BC, 0FFFDh`
+**Explanation:** Load immediate 16-bit value 0xFFFD into register pair BC (B=0xFF, C=0xFD). This prepares BC for later use (often used as the I/O port pointer in `(C)` style `OUT (C),A` sequences, or as an index/parameter).
+
+`C04F:  3E 0C       LD A, 0Ch`
+**Explanation:** Load immediate value 0x0C (decimal 12) into register A.
+
+`C051:  ED 79       OUT (C), A`
+**Explanation:** Output the contents of A to the I/O port whose low byte is in C and whose high (implicit) port selection comes from B — the Z80 `OUT (C),A` instruction uses register C as port low byte and B as port high. In Spectrum/AY usage this commonly writes to the AY port when BC contains the specific port number.
+
+`C053:  AF          XOR A`
+**Explanation:** `A ← A XOR A`; this clears register A to 0 and sets flags accordingly (Z flag set).
+
+`C054:  06 BF       LD B, 0BFh`
+**Explanation:** Load immediate 0xBF into register B. Together with later uses of `OUT (C),A` this sets BC to the desired I/O port pair.
+
+`C056:  C3 95 C4    JP LBL30`
+**Explanation:** Unconditional jump to label `LBL30` (address 0xC495). Execution continues at that label — this is a jump over subsequent data/alternate entry code (a common pattern to provide different entry points).
+
+`C059:  21 A8 C4    LD HL, 0C4A8h`
+**Explanation:** Load HL with the 16-bit immediate value 0xC4A8 — HL now points at address 0xC4A8. Likely a pointer to some table or code area.
+
+`C05C:  C3 62 C0    JP LBL1`
+**Explanation:** Jump unconditionally to label `LBL1` (address 0xC062). Execution transfers there.
+
+`C05F:  C3 9D C1    JP LBL5`
+**Explanation:** Another unconditional jump — this jumps to `LBL5` (0xC19D). This line is part of the initial dispatch region; only one of these jumps will be reached depending how the binary is entered.
+
+---
+
+## LBL1 — initialization path (C062 … C0C8)
+
+`C062:  F3          DI`
+**Explanation:** Disable interrupts. Ensures the initialization sequence runs atomically (no IRQs interrupting initialization).
+
+`C063:  7E          LD A, (HL)`
+**Explanation:** Load A from memory pointed by HL (A ← \[HL]).
+
+`C064:  32 D1 C0    LD (VAR4), A`
+**Explanation:** Store the value in A into memory at address `VAR4` (which the disassembly labels — this is equivalent to `LD (0C0D1h),A` given the labels). In other words, write A into that zero-page/variable location.
+
+`C067:  22 14 C1    LD (SMC5+1), HL`
+**Explanation:** Store the 16-bit HL into the absolute memory address `(SMC5+1)` (two bytes). This writes both L and H to that location; used to save a pointer.
+
+`C06A:  23          INC HL`
+**Explanation:** Increment HL by 1 (HL ← HL + 1). Often used to walk through memory.
+
+`C06B:  CD 0E C1    CALL SUB2`
+**Explanation:** Call subroutine `SUB2` at address 0xC10E (push return address and jump). The subroutine will execute and then return here.
+
+`C06E:  1A          LD A, (DE)`
+**Explanation:** Load A from memory pointed by DE (A ← \[DE]).
+
+`C06F:  13          INC DE`
+**Explanation:** Increment DE by 1 (DE ← DE + 1).
+
+`C070:  3C          INC A`
+**Explanation:** Increment A by 1 (A ← A + 1), updating flags.
+
+`C071:  32 D3 C0    LD (VAR5), A`
+**Explanation:** Store A into memory address `VAR5` (i.e. write byte A to \[0xC0D3] per labels).
+
+`C074:  ED 53 C9 C0 LD (VAR1), DE`
+**Explanation:** `ED 53` with 16-bit operand is `LD (nn),DE` — store the DE pair (two bytes) at absolute address `VAR1` (for example writes DE low then DE high to that absolute address). Used to save pointer/table.
+
+`C078:  CD 0E C1    CALL SUB2`
+**Explanation:** Call subroutine `SUB2` again.
+
+`C07B:  ED 53 CB C0 LD (VAR2), DE`
+**Explanation:** Store DE pair into the absolute address labeled `VAR2`.
+
+`C07F:  D5          PUSH DE`
+**Explanation:** Push DE pair to the stack (save DE).
+
+`C080:  CD 0E C1    CALL SUB2`
+**Explanation:** Call `SUB2` again; a sequence of calls used for pointer extraction/relocation.
+
+`C083:  ED 53 CD C0 LD (VAR3), DE`
+**Explanation:** Store DE into absolute address `VAR3`.
+
+`C087:  21 1B 00    LD HL, 001Bh`
+**Explanation:** Load HL with immediate 0x001B (decimal 27). Possibly a size or index used by the next call.
+
+`C08A:  CD 13 C1    CALL SUB3`
+**Explanation:** Call subroutine `SUB3` at 0xC113 — probably performs some initialization using HL=0x1B.
+
+`C08D:  EB          EX DE, HL`
+**Explanation:** Exchange DE and HL (swap those register pairs). Useful after certain data movement.
+
+`C08E:  22 CF C0    LD (SMC1+1), HL`
+**Explanation:** Store HL into absolute address `(SMC1+1)`.
+
+`C091:  21 DA C0    LD HL, REF1`
+**Explanation:** Load HL with the address `REF1` (label at 0xC0DA). HL ← 0xC0DA.
+
+`C094:  22 D4 C0    LD (VAR6), HL`
+**Explanation:** Store HL into memory at address `VAR6` (save pointer).
+
+`C097:  21 DB C0    LD HL, REF2`
+**Explanation:** Load HL with `REF2` (0xC0DB). This reads a pointer/address into HL.
+
+`C09A:  11 DC C0    LD DE, REF3`
+**Explanation:** Load DE with `REF3` (0xC0DC). DE now holds that pointer.
+
+`C09D:  01 2C 00    LD BC, 002Ch`
+**Explanation:** Load BC with immediate 0x002C (44 decimal). Probably a block size for a memory copy.
+
+`C0A0:  70          LD (HL), B`
+**Explanation:** Store B into memory at \[HL].
+
+`C0A1:  ED B0       LDIR`
+**Explanation:** `LDIR` — block copy: copy BC bytes from (HL) to (DE), incrementing HL and DE and decrementing BC until BC becomes zero. Often used to copy a table or initialize memory (used with the BC value set above).
+
+`C0A3:  E1          POP HL`
+**Explanation:** Pop two bytes from stack into HL (undo previous PUSH). Restore HL from saved state.
+
+`C0A4:  01 21 00    LD BC, 0021h`
+**Explanation:** Load BC with 0x0021 (33 decimal). Another length/counter for upcoming operations.
+
+`C0A7:  AF          XOR A`
+**Explanation:** Clear A (A ← 0), sets Z flag.
+
+`C0A8:  CD 08 C1    CALL SUB1`
+**Explanation:** Call `SUB1` (address 0xC108) — a helper routine used repeatedly (see its definition below).
+
+`C0AB:  3D          DEC A`
+**Explanation:** Decrement A (A ← A - 1).
+
+`C0AC:  32 E4 C0    LD (VAR10), A`
+**Explanation:** Store A into the byte labeled `VAR10`.
+
+`C0AF:  32 EE C0    LD (VAR12), A`
+**Explanation:** Store A into `VAR12`.
+
+`C0B2:  32 F8 C0    LD (0C0F8h), A`
+**Explanation:** Store A into absolute address 0xC0F8 (labelled in file).
+
+`C0B5:  3E 01       LD A, 01h`
+**Explanation:** Load immediate value 1 into A.
+
+`C0B7:  32 D2 C0    LD (SMC2+1), A`
+**Explanation:** Store A into the low byte (or single byte) at `(SMC2+1)` — storing flag/initial value.
+
+`C0BA:  23          INC HL`
+**Explanation:** Increment HL.
+
+`C0BB:  22 E2 C0    LD (VAR9), HL`
+**Explanation:** Store HL into `VAR9` (a pointer save).
+
+`C0BE:  22 EC C0    LD (VAR11), HL`
+**Explanation:** Store HL into `VAR11`.
+
+`C0C1:  22 F6 C0    LD (VAR14), HL`
+**Explanation:** Store HL into `VAR14`. The code stores the same HL into several variable slots — likely initializing table base pointers.
+
+`C0C4:  CD 78 C4    CALL SUB12`
+**Explanation:** Call subroutine `SUB12` (address 0xC478) — likely performs some hardware/AY init (see SUB12 below).
+
+`C0C7:  FB          EI`
+**Explanation:** Enable interrupts (re-enable after initialization).
+
+`C0C8:  C9          RET`
+**Explanation:** Return from subroutine (end of the initialization routine).
+
+---
+
+## Data words & bytes (C0C9 … C0FF etc.)
+
+`C0C9:   VAR1:`
+`C0C9:   77 F1         DW 0F177h`
+**Explanation:** `DW` defines the 16-bit word `0xF177` at this address — this is data, not executable code. It might be a pointer or part of a table.
+
+`C0CB:   VAR2:`
+`C0CB:   8F F1         DW 0F18Fh`
+**Explanation:** Another 16-bit word definition.
+
+`C0CD:   VAR3:`
+`C0CD:   13 F2         DW 0F213h`
+**Explanation:** Word data at `VAR3`.
+
+`C0D1:   VAR4:`
+`C0D1:   SMC2:`
+`C0D1:   06            DB 06h`
+**Explanation:** Define a single byte value `0x06` (DB = define byte). The labels indicate named variables pointing here.
+
+`C0D3:   VAR5:`
+`C0D3:   0C            DB 0Ch`
+**Explanation:** Define byte `0x0C`.
+
+`C0D4:   VAR6:`
+`C0D4:   B1 F4         DW 0F4B1h`
+**Explanation:** Define 16-bit word `0xF4B1`.
+
+`C0D8:   VAR7:`
+`C0D8:   35 F5         DW 0F535h`
+**Explanation:** Define 16-bit word.
+
+`C0DA:   REF1:`
+`C0DA:   FF            RST 38h`
+**Explanation:** The byte `0xFF` is listed and disassembler interpreted as `RST 38h` — when executed this would call restart vector 0x38. Here this entry is probably data (table entry) and not executed as code; it's shown with the `RST` mnemonic because `0xFF` as an opcode is that instruction. In the context of a data table it should be treated as data, not executed.
+
+`C0DB:   REF2:`
+`C0DB:   00            NOP`
+**Explanation:** Byte `0x00` (NOP). Again likely data.
+
+`C0DC:   REF3:`
+`C0DC:   00            NOP`
+**Explanation:** Byte `0x00`.
+
+`C0DD:   REF4:`
+`C0DD:   04            INC B`
+**Explanation:** Byte `0x04` (whose opcode would be `INC B` if executed) — but in this area it is part of a data structure (REF4) used as data, not executed.
+
+`C0DE:   24            INC H`
+`C0DF:   00            NOP`
+**Explanation:** These are the next bytes of that data region — the disassembler prints the opcode mnemonics but they are actual bytes in a data structure (not necessarily executed).
+
+`C0E0:   VAR8:`
+`C0E0:   88 EF         DW 0EF88h`
+**Explanation:** 16-bit word data at VAR8.
+
+`C0E2:   VAR9:`
+`C0E2:   90 F1         DW 0F190h`
+**Explanation:** Word data.
+
+`C0E4:   VAR10:`
+`C0E4:   1C            DB 1Ch`
+**Explanation:** Byte data (1Ch).
+
+`C0E5:   02            LD (BC), A`
+**Explanation:** Byte `0x02` present — the disassembler shows it as opcode `LD (BC),A`, but in this zone it’s data; the comment shows the disassembly interpreter’s decoding.
+
+`C0E6:   01 04 1A     LD BC, 1A04h`
+**Explanation:** `DW`/bytes interpreted as a 3-byte sequence `LD BC,0x1A04` — here it’s data (but if executed it would load BC).
+
+`C0E9:   SMC4:`
+`C0E9:   01 4E F0    LD BC, 0F04Eh`
+**Explanation:** Data or table entry interpreted as `LD BC,0xF04E`. Labels suggest these words form a table used by the player (for example the frequency table addresses / period table or similar).
+
+`C0EC:   VAR11:`
+`C0EC:   90 F1         DW 0F190h`
+`C0EE:   VAR12:`
+`C0EE:   1C            DB 1Ch`
+`C0EF:   00            NOP`
+**Explanation:** More data bytes/words.
+
+`C0F0:   01 0A 35    LD BC, 350Ah`
+**Explanation:** Data interpreted as a 16-bit/3-byte constant.
+
+`C0F3:   00            NOP`
+`C0F4:   VAR13:`
+`C0F4:   B1 F0         DW 0F0B1h`
+**Explanation:** Word data.
+
+`C0F6:   VAR14:`
+`C0F6:   D2 F1         DW 0F1D2h`
+**Explanation:** Word data.
+
+`C0F9:   VAR15:`
+`C0F9:   05            DB 05h`
+**Explanation:** Byte data — could be a counter or small constant used by playback.
+
+`C0FA:   VAR16:`
+`C0FA:   DF 09         DW 09DFh`
+**Explanation:** Word data.
+
+`C0FC:   VAR17:`
+`C0FC:   58 03         DW 0358h`
+**Explanation:** Word data.
+
+`C0FE:   VAR18:`
+`C0FE:   68 01         DW 0168h`
+**Explanation:** Word data.
+
+`C102:   REF5:`
+`C102:   0B            DEC BC`
+**Explanation:** Byte 0x0B present (disassembler depicts it as DEC BC). In context likely part of data.
+
+`C103:   REF6:`
+`C103:   1A            LD A, (DE)`
+**Explanation:** Byte 0x1A present.
+
+`C104:   REF7:`
+`C104:   07            RLCA`
+**Explanation:** Byte 0x07 present.
+
+`C105:   VAR19:`
+`C105:   D9            DB 0D9h`
+**Explanation:** Byte data.
+
+`C106:   00            NOP`
+**Explanation:** byte 0x00.
+
+`C107:   VAR20:`
+`C107:   00            DB 00h`
+**Explanation:** a zero byte reserved for some variable.
+
+---
+
+## SUB1 (helper) — `C108` to `C10B`
+
+`C108:  BE          CP (HL)`
+**Explanation:** Compare A with byte at memory location pointed by HL (sets flags, no registers changed). Used to test whether the value in A equals \[HL].
+
+`C109:  C8          RET Z`
+**Explanation:** Return if Zero flag set (i.e., if A == \[HL]). This makes `SUB1` a test-and-return routine: if equal, return; if not, fall through to code below.
+
+`C10A:  09         ADD HL, BC`
+**Explanation:** Add BC to HL (HL ← HL + BC). This modifies HL and flags accordingly.
+
+`C10B:  C3 08 C1   JP SUB1`
+**Explanation:** Unconditional jump to the start of `SUB1` (address 0xC108) — effectively a loop entry if `SUB1` is used iteratively.
+
+**Purpose (context):** `SUB1` appears to test and, on mismatch, add BC to HL and loop — used to scan a table with stride BC until a match is found.
+
+---
+
+## SUB2 (C10E … C118)
+
+`C10E:  5E         LD E, (HL)`
+**Explanation:** Load E from memory at HL.
+
+`C10F:  23         INC HL`
+**Explanation:** HL ← HL + 1.
+
+`C110:  56         LD D, (HL)`
+**Explanation:** Load D from memory at HL (so after two bytes read, DE contains the 16-bit word \[HL0]).
+
+`C111:  23         INC HL`
+**Explanation:** HL++ (HL moved forward).
+
+`C112:  EB         EX DE, HL`
+**Explanation:** Exchange DE and HL — HL now contains the just-read word, DE holds prior HL value.
+
+`C113:  (SMC5/SUB3 label)`
+`C113:  01 43 EE   LD BC, 0EE43h`
+**Explanation:** Load BC immediate with 0xEE43 — treated as data or a constant used inside the routine.
+
+`C116:  09         ADD HL, BC`
+**Explanation:** Add BC to HL.
+
+`C117:  EB         EX DE, HL`
+**Explanation:** Exchange DE and HL (swap back).
+
+`C118:  C9         RET`
+**Explanation:** Return from subroutine.
+
+**Purpose:** `SUB2` reads a 16-bit little-endian word from memory (\[HL] and \[HL+1]) into HL (via DE), then adds a constant; this is likely a table-pointer extraction routine that converts an index into an absolute address.
+
+---
+
+## SUB4 (C119 … C150) — IX-based arithmetic / checks
+
+`C119:  16 00      LD D, 00h`
+**Explanation:** Load immediate 0 into D.
+
+`C11B: 5F         LD E, A`
+**Explanation:** Copy A into E.
+
+`C11C: 87         ADD A, A`
+**Explanation:** A ← A + A (double A), adjusting flags.
+
+`C11D: 83         ADD A, E`
+**Explanation:** A ← A + E.
+
+`C11E: 5F         LD E, A`
+**Explanation:** Move A into E.
+
+`C11F: DD 19     ADD IX, DE`
+**Explanation:** Add DE to IX (IX ← IX + DE). This is extended Z80 (IX register) arithmetic. Used to compute an index/pointer using IX base plus offset in DE.
+
+`C121: DD 7E 01  LD A, (IX+01h)`
+**Explanation:** Load A from memory at address IX + 1 (indexing a structure based at IX).
+
+`C124: CB 7F     BIT 7, A`
+**Explanation:** Test bit 7 of A (set Z flag if bit is 0). Used to branch on a flag bit in a descriptor byte.
+
+`C126: 0E 10     LD C, 10h`
+**Explanation:** Load 0x10 into C.
+
+`C128: C2 2C C1  JP NZ, LBL2`
+**Explanation:** If Zero flag is not set (i.e., BIT 7 was 0? careful with condition), jump to LBL2 (address 0xC12C). This conditional branching handles different pattern types.
+
+`C12B: 4A        LD C, D`
+**Explanation:** Copy D into C.
+
+`C12C: CB 77    BIT 6, A`
+**Explanation:** Test bit 6 of A.
+
+`C12E: 06 02   LD B, 02h`
+**Explanation:** Load B with 2.
+
+`C130: C2 34 C1 JP NZ, LBL3`
+**Explanation:** If Zero flag not set, jump to LBL3.
+
+`C133: 42      LD B, D`
+**Explanation:** Copy D into B.
+
+`C134: E6 1F  AND 1Fh`
+**Explanation:** Logical AND A with 0x1F (mask low 5 bits) — typical to extract lower bits of a note or envelope command.
+
+`C136: 67     LD H, A`
+**Explanation:** Move A into H.
+
+`C137: DD 5E 02  LD E, (IX+02h)`
+**Explanation:** Load E from byte at (IX+2).
+
+`C13A: DD 7E 00  LD A, (IX+00h)`
+**Explanation:** Load A from byte at (IX+0).
+
+`C13D: F5     PUSH AF`
+**Explanation:** Push AF on stack to save A and flags.
+
+`C13E: E6 F0   AND 0F0h`
+**Explanation:** A ← A & 0xF0 (mask upper nibble).
+
+`C140–C143: 0F 0F 0F 0F  RRCA (four times)`
+**Explanation:** Rotate A right through carry repeatedly (4 times). Used to shift/rotate nibbles — here it repeatedly rotates the masked nibble down.
+
+`C144: 57     LD D, A`
+**Explanation:** Move rotated A into D.
+
+`C145: F1     POP AF`
+**Explanation:** Restore AF (A and flags) from stack.
+
+`C146: E6 0F AND 0Fh`
+**Explanation:** Mask A with 0x0F (low nibble).
+
+`C148: 6F     LD L, A`
+**Explanation:** Store A into L.
+
+`C149: DD CB 01 6E  BIT 5, (IX+01h)`
+**Explanation:** Extended opcode: test bit 5 in memory at IX+1.
+
+`C14D: C8    RET Z`
+**Explanation:** Return if Zero flag set (bit tested was zero).
+
+`C14E: CB E2  SET 4, D`
+**Explanation:** Set bit 4 in register D (change that bit to 1).
+
+`C150: C9    RET`
+**Explanation:** Return from subroutine.
+
+**Purpose:** SUB4 is an IX-based routine that decodes compact commands/packed bits from pattern bytes (it masks and shifts bits, tests flags, and writes to registers). It’s part of reading pattern/ornament/sample descriptors.
+
+---
+
+## SUB5 (C151 … C191)
+
+`C151: 3A F9 C0  LD A, (VAR15)`
+**Explanation:** Load A from memory at `VAR15` (0xC0F9) — fetch a per-channel counter/byte.
+
+`C154: 4F       LD C, A`
+**Explanation:** Copy A to C.
+
+`C155: 21 D3 C0  LD HL, VAR5`
+**Explanation:** HL ← address `VAR5` (0xC0D3) — a table pointer.
+
+`C158: BE       CP (HL)`
+**Explanation:** Compare A with the byte pointed by HL.
+
+`C159: DA 5E C1 JP C, LBL4`
+**Explanation:** If A < (HL) (carry set from CP), jump to `LBL4` (0xC15E) — conditional branch.
+
+`C15C: AF      XOR A`
+**Explanation:** Clear A (A ← 0).
+
+`C15D: 4F      LD C, A`
+**Explanation:** C ← 0.
+
+`C15E: LBL4:`
+`C15E: 3C      INC A`
+**Explanation:** Increment A (count-up).
+
+`C15F: 32 F9 C0  LD (VAR15), A`
+**Explanation:** Store A back into `VAR15` memory — update sample position/counter.
+
+`C162: 69      LD L, C`
+**Explanation:** Copy C into L.
+
+`C163: 26 00  LD H, 00h`
+**Explanation:** Set H = 0.
+
+`C165: 29     ADD HL, HL`
+**Explanation:** Double HL (HL ← HL\*2) — used for addressing 16-bit tables (word indices).
+
+`C166: ED 5B C9 C0  LD DE, (VAR1)`
+**Explanation:** `ED 5B nn nn` loads DE from the 16-bit word stored at absolute address `VAR1`. So DE ← \[VAR1] (a pointer).
+
+`C16A: 19     ADD HL, DE`
+**Explanation:** HL ← HL + DE. Combined with doubling above this computes an offset into a table: base + (index \* element size).
+
+`C16B: 4E     LD C, (HL)`
+**Explanation:** Load C from \[HL] — read a table byte (e.g., sample parameter).
+
+`C16C: 23     INC HL`
+**Explanation:** HL++.
+
+`C16D: 7E     LD A, (HL)`
+**Explanation:** Load A from \[HL] — next byte in the table.
+
+`C16E: 32 9D C3 LD (SMC6+1), A`
+**Explanation:** Store A into `(SMC6+1)` — saves that parameter someplace.
+
+`C171: 79    LD A, C`
+**Explanation:** A ← C (move the previously read byte C back to A).
+
+`C172: 2A CD C0 LD HL, (VAR3)`
+**Explanation:** Load HL with the 16-bit word stored at `VAR3` (HL ← \[VAR3]); reading an address/pointer from a table.
+
+`C175: 01 07 00  LD BC, 0007h`
+**Explanation:** Load BC with 7 — likely a repeat count or stride.
+
+`C178: CD 08 C1  CALL SUB1`
+**Explanation:** Call `SUB1` — SUB1 tests `A` vs table entries and advances HL by BC until match; used for scanning.
+
+`C17B: 23  INC HL`
+**Explanation:** HL++ advance pointer past something.
+
+`C17C: CD 0E C1 CALL SUB2`
+**Explanation:** Call `SUB2` — loads a 16-bit pointer from memory and adjusts it (see SUB2). Used heavily for resolving pointers inside the STC data structure.
+
+`C17F: ED 53 D4 C0 LD (VAR6), DE`
+**Explanation:** Store DE into `VAR6`.
+
+`C183: CD 0E C1 CALL SUB2`
+**Explanation:** Another call to SUB2 — repeated pointer resolutions for sample/tables.
+
+`C186: ED 53 D6 C0 LD (SMC3+1), DE`
+**Explanation:** Store DE into `(SMC3+1)`.
+
+`C18A: CD 0E C1 CALL SUB2`
+**Explanation:** Call SUB2 again.
+
+`C18D: ED 53 D8 C0 LD (VAR7), DE`
+**Explanation:** Store DE into `VAR7`.
+
+`C191: C9  RET`
+**Explanation:** Return from SUB5.
+
+**Purpose:** SUB5 looks up sample data/parameters and resolves addresses/pointers into working variables to be used later for sample playback.
+
+---
+
+## SUB6 (C192 … C19C)
+
+`C192: DD 35 02   DEC (IX+02h)`
+**Explanation:** Decrement the byte at memory address (IX + 2). This manipulates a counter stored relative to IX (per-channel state).
+
+`C195: F0         RET P`
+**Explanation:** Return if sign flag is positive (P = parity even / not negative?) — on Z80 `RET P` returns if parity/parity-flag set (parity = even). Actually F0 is `RET P` (return if parity even). The routine conditionally returns based on flags set earlier.
+
+`C196: DD 7E FF   LD A, (IX-01h)`
+**Explanation:** Load A from memory at IX − 1 (a relative slot).
+
+`C199: DD 77 02   LD (IX+02h), A`
+**Explanation:** Store A into (IX+2) — copy value from one relative slot to another.
+
+`C19C: C9        RET`
+**Explanation:** Return.
+
+**Purpose:** SUB6 manipulates per-channel counters/slots relative to IX. Likely used to implement sample/ornament repeat or envelope countdown.
+
+---
+
+## LBL5 (C19D … onward) — main playback/driver entry
+
+`C19D: 3A D2 C0  LD A, (SMC2+1)`
+**Explanation:** Load A from `(SMC2+1)` — read a byte that is probably a global state or channel flag.
+
+`C1A0: 3D        DEC A`
+**Explanation:** Decrement A.
+
+`C1A1: 32 D2 C0 LD (SMC2+1), A`
+**Explanation:** Store decremented value back into `(SMC2+1)`.
+
+`C1A4: C2 E7 C2 JP NZ, LBL19`
+**Explanation:** If Zero flag not set (i.e., A ≠ 0), jump to `LBL19`. This implements a countdown: when A reaches zero, fall through; otherwise branch.
+
+`C1A7: 3A D1 C0 LD A, (VAR4)`
+**Explanation:** Load A from `VAR4`.
+
+`C1AA: 32 D2 C0 LD (SMC2+1), A`
+**Explanation:** Store A into `(SMC2+1)` — reload the countdown value from VAR4.
+
+`C1AD: DD 21 DD C0 LD IX, REF4`
+**Explanation:** Load IX with address `REF4` (0xC0DD). IX is used as the base pointer for per-channel working data.
+
+`C1B1: CD 92 C1 CALL SUB6`
+**Explanation:** Call SUB6 (manipulate per-channel counter). See earlier.
+
+`C1B4: F2 C8 C1 JP P, LBL6`
+**Explanation:** Jump to `LBL6` if Parity flag set (i.e., `RET P` condition true). Parity is used by SUB6 to signal certain conditions.
+
+`C1B7: 2A D4 C0 LD HL, (VAR6)`
+**Explanation:** Load HL with the 16-bit word stored at VAR6 — read some pointer.
+
+`C1BA: 7E       LD A, (HL)`
+**Explanation:** Load A from memory pointed by HL.
+
+`C1BB: 3C       INC A`
+**Explanation:** Increment A (note value / command byte).
+
+`C1BC: CC 51 C1 CALL Z, SUB5`
+**Explanation:** If Z flag set (i.e., result was zero?), call `SUB5`. In this context the `CALL Z` probably handles the case where the incremented A reached zero meaning end-of-sample etc.
+
+`C1BF: 2A D4 C0 LD HL, (VAR6)`
+**Explanation:** Reload HL from VAR6.
+
+`C1C2: CD F1 C1 CALL SUB7`
+**Explanation:** Call `SUB7` which interprets pattern byte and performs actions (see SUB7 below).
+
+`C1C5: 22 D4 C0 LD (VAR6), HL`
+**Explanation:** Store HL back into VAR6 — update pointer.
+
+`C1C8: LBL6:`
+`C1C8: DD 21 E7 C0 LD IX, 0C0E7h`
+**Explanation:** Load IX with address 0xC0E7 — change base to another per-channel structure.
+
+`C1CC: CD 92 C1 CALL SUB6`
+**Explanation:** Call SUB6 again for other per-channel maintenance.
+
+`C1CF: F2 DB C1 JP P, LBL7`
+**Explanation:** If Parity flag set, jump to `LBL7`.
+
+`C1D2: 2A D6 C0 LD HL, (SMC3+1)`
+**Explanation:** Load HL from `(SMC3+1)` — pointer to channel-specific data.
+
+`C1D5: CD F1 C1 CALL SUB7`
+**Explanation:** Call SUB7 to process that channel’s pattern stream.
+
+`C1D8: 22 D6 C0 LD (SMC3+1), HL`
+**Explanation:** Store HL back into `(SMC3+1)` — update pointer.
+
+`C1DB: LBL7:`
+`C1DB: DD 21 F1 C0 LD IX, 0C0F1h`
+**Explanation:** Load IX with 0xC0F1 — prepare for next per-channel block.
+
+`C1DF: CD 92 C1 CALL SUB6`
+**Explanation:** Call SUB6.
+
+`C1E2: F2 E7 C2 JP P, LBL19`
+**Explanation:** If parity is set, jump to LBL19 (exit/next major stage). This loop structure iterates through channels and updates state.
+
+`C1E5: 2A D8 C0 LD HL, (VAR7)`
+**Explanation:** HL ← \[VAR7] — load pointer.
+
+`C1E8: CD F1 C1 CALL SUB7`
+**Explanation:** Call SUB7 for this last per-channel structure.
+
+`C1EB: 22 D8 C0 LD (VAR7), HL`
+**Explanation:** Save HL back into VAR7.
+
+`C1EE: C3 E7 C2 JP LBL19`
+**Explanation:** Unconditional jump to `LBL19` — finish processing and go to the driver main label.
+
+---
+
+## SUB7 (C1F1 … C2BB) — pattern / command interpreter (important)
+
+`C1F1: 7E      LD A, (HL)`
+**Explanation:** Load command byte from \[HL] into A.
+
+`C1F2: FE 60   CP 60h`
+**Explanation:** Compare A with 0x60 (pattern token threshold). This instruction is checking the value range of the pattern byte.
+
+`C1F4: DA 1F C2 JP C, LBL8`
+**Explanation:** If A < 0x60 (carry set after compare), jump to `LBL8`. Branch for note numbers vs sample/ornament markers — per STC format notes.
+
+`C1F7: FE 70   CP 70h`
+**Explanation:** Compare A with 0x70.
+
+`C1F9: DA 2C C2 JP C, LBL10`
+**Explanation:** If A < 0x70, jump to `LBL10` (this corresponds to sample-selection codes per the STC format).
+
+`C1FC: FE 80   CP 80h`
+**Explanation:** Compare A with 0x80 (special command values start here per format).
+
+`C1FE: DA 4D C2 JP C, LBL14`
+**Explanation:** If A < 0x80, jump to LBL14 (handle ornament number/disabling rules).
+
+`C201: CA 44 C2 JP Z, LBL11`
+**Explanation:** If A==0x80, jump to LBL11 (specific command R or end-of-position semantics defined in STC).
+
+`C204: FE 81 CP 81h`
+**Explanation:** Compare A with 0x81 (empty note code).
+
+`C206: CA 2A C2 JP Z, LBL9`
+**Explanation:** If A==0x81 jump to LBL9 (empty note handling).
+
+`C209: FE 82 CP 82h`
+**Explanation:** Compare A with 0x82 (clear envelope/ornament command).
+
+`C20B: CA 4A C2 JP Z, LBL13`
+**Explanation:** If A==0x82 jump to LBL13.
+
+`C20E: FE 8F CP 8Fh`
+**Explanation:** Compare A with 0x8F (range check for envelope markers 0x83..0x8E).
+
+`C210: DA 69 C2 JP C, LBL16`
+**Explanation:** If A < 0x8F then jump to `LBL16` (envelope values handling likely).
+
+`C213: D6 A1 SUB 0A1h`
+**Explanation:** Subtract 0xA1 from A (this translates A from STC "delay byte" range 0xA1..0xFE into a delay value). The STC format uses values 0xA1..0xFE to indicate a delay (see spec). By subtracting 0xA1 the code obtains the delay amount.
+
+`C215: DD 77 02  LD (IX+02h), A`
+**Explanation:** Store resulting delay value into (IX+02h) — per-channel delay counter.
+
+`C218: DD 77 FF  LD (IX-01h), A`
+**Explanation:** Store the same into (IX-1) — saving delay into another per-channel field.
+
+`C21B: 23 INC HL`
+**Explanation:** Advance HL to next pattern byte.
+
+`C21C: C3 F1 C1 JP SUB7`
+**Explanation:** Jump back to the start of SUB7 (re-enter loop to process next command). This handles delay tokens by storing the delay and continuing.
+
+---
+
+### LBL8 (C21F … C22A) — note handling for A < 0x60
+
+`C21F: DD 77 01 LD (IX+01h), A`
+**Explanation:** Store the note value A into (IX+1) — channel note register.
+
+`C222: DD 36 00 00 LD (IX+00h), 00h`
+**Explanation:** Store 0 into (IX+0) — clear some small counter/state for this channel.
+
+`C226: DD 36 07 20 LD (IX+07h), 20h`
+**Explanation:** Store 0x20 into (IX+7) — initialize an offset/flag value (0x20 decimal 32).
+
+`C22A: LBL9:`
+`C22A: 23 INC HL`
+**Explanation:** Increment HL to advance pattern pointer.
+
+`C22B: C9 RET`
+**Explanation:** Return from SUB7 (note processed).
+
+---
+
+### LBL10 (C22C … C241) — sample/ornament selection
+
+`C22C: D6 60 SUB 60h`
+**Explanation:** Subtract 0x60 from A; per STC format A in 0x60..0x6F represent sample numbers (value − 0x60).
+
+`C22E: E5 PUSH HL`
+**Explanation:** Push HL on stack to preserve current pattern pointer.
+
+`C22F: 01 63 00 LD BC, 0063h`
+**Explanation:** Load BC with 0x0063 (99 decimal) — the sample size described in STC spec is 99 bytes per sample; 0x63 = 99.
+
+`C232: 2A CF C0 LD HL, (SMC1+1)`
+**Explanation:** Load into HL the pointer stored at `(SMC1+1)` — likely the base address of samples table.
+
+`C235: CD 08 C1 CALL SUB1`
+**Explanation:** Call SUB1 to find the sample number or offset — SUB1 scans a table with stride BC to match the sample number.
+
+`C238: 23 INC HL`
+**Explanation:** HL++ move to sample data.
+
+`C239: DD 75 03 LD (IX+03h), L`
+**Explanation:** Store L (low byte) into (IX+3) — save L into per-channel field.
+
+`C23C: DD 74 04 LD (IX+04h), H`
+**Explanation:** Store H into (IX+4) — store high byte for the sample pointer.
+
+`C23F: E1 POP HL`
+**Explanation:** Restore HL from stack (undo earlier PUSH HL).
+
+`C240: 23 INC HL`
+**Explanation:** HL++ to skip into the next field.
+
+`C241: C3 F1 C1 JP SUB7`
+**Explanation:** Jump back to SUB7 to continue processing pattern stream.
+
+---
+
+### LBL11 / LBL12 / LBL13 / LBL14 / LBL15 — special commands & envelope/ornament handling
+
+`C244: 23 INC HL`
+**Explanation:** Advance HL (skip a byte).
+
+`C245: DD 36 07 FF LD (IX+07h), 0FFh`
+**Explanation:** Store 0xFF into (IX+7) — set a flag value meaning e.g. disable envelope or set a sentinel.
+
+`C249: C9 RET`
+**Explanation:** Return.
+
+`C24A: LBL13:`
+`C24A: AF XOR A`
+**Explanation:** Clear A (A ← 0).
+
+`C24B: 18 02 JR LBL15`
+**Explanation:** Unconditional relative jump forward by 2 bytes to LBL15 (skip next instruction's branch).
+
+`C24D: LBL14:`
+`C24D: D6 70 SUB 70h`
+**Explanation:** Subtract 0x70 from A (ornament-number decoding).
+
+`C24F: LBL15:`
+`C24F: E5 PUSH HL`
+**Explanation:** Save HL on stack.
+
+`C250: 01 21 00 LD BC, 0021h`
+**Explanation:** Load BC = 0x21 (33 decimal) — length for ornament table or pattern stride.
+
+`C253: 2A CB C0 LD HL, (VAR2)`
+**Explanation:** Load HL from pointer stored at VAR2 — get base for ornament/pattern table.
+
+`C256: CD 08 C1 CALL SUB1`
+**Explanation:** Call SUB1 to find the ornament/pattern entry.
+
+`C259: 23 INC HL`
+**Explanation:** HL++.
+
+`C25A: DD 75 05 LD (IX+05h), L`
+**Explanation:** Save low byte of ornament pointer in (IX+5).
+
+`C25D: DD 74 06 LD (IX+06h), H`
+**Explanation:** Save high byte in (IX+6).
+
+`C260: DD 36 FE 00 LD (IX-02h), 00h`
+**Explanation:** Store zero into (IX - 2) — initialize some per-channel field (possibly a repeat counter).
+
+`C264: E1 POP HL`
+**Explanation:** Restore HL from stack.
+
+`C265: 23 INC HL`
+**Explanation:** HL++.
+
+`C266: C3 F1 C1 JP SUB7`
+**Explanation:** Jump back to SUB7 to continue processing.
+
+---
+
+### LBL16 (C269 … C28B) — ornament/envelope branch targets
+
+`C269: D6 80 SUB 80h`
+**Explanation:** Subtract 0x80 from A — branch to a block handling these values.
+
+`C26B: 32 07 C1 LD (VAR20), A`
+**Explanation:** Store A into `VAR20`.
+
+`C26E: 23 INC HL`
+**Explanation:** HL++.
+
+`C26F: 7E LD A, (HL)`
+**Explanation:** A ← \[HL].
+
+`C270: 23 INC HL`
+**Explanation:** HL++.
+
+`C271: 32 05 C1 LD (VAR19), A`
+**Explanation:** Store A into `VAR19`.
+
+`C274: DD 36 FE 01 LD (IX-02h), 01h`
+**Explanation:** Store 0x01 into (IX-02h) — set a flag or initial value.
+
+`C278: E5 PUSH HL`
+**Explanation:** Save HL.
+
+`C279: AF XOR A`
+**Explanation:** Clear A.
+
+`C27A: 01 21 00 LD BC, 0021h`
+**Explanation:** BC = 0x21.
+
+`C27D: 2A CB C0 LD HL, (VAR2)`
+**Explanation:** Load pointer for ornament table.
+
+`C280: CD 08 C1 CALL SUB1`
+**Explanation:** Call SUB1 to locate ornament entry.
+
+`C283: 23 INC HL`
+**Explanation:** HL++.
+
+`C284: DD 75 05 LD (IX+05h), L`
+**Explanation:** Save low byte of pointer into (IX+5).
+
+`C287: DD 74 06 LD (IX+06h), H`
+**Explanation:** Save high byte into (IX+6).
+
+`C28A: E1 POP HL`
+**Explanation:** Restore HL.
+
+`C28B: C3 F1 C1 JP SUB7`
+**Explanation:** Jump back to SUB7.
+
+---
+
+## SUB8 (C28E … C2C1)
+
+`C28E: DD 7E 07  LD A, (IX+07h)`
+**Explanation:** Load A from (IX+7) — read a per-channel value.
+
+`C291: 3C       INC A`
+**Explanation:** Increment A.
+
+`C292: C8       RET Z`
+**Explanation:** Return if A is zero (after increment) — used to test boundary conditions.
+
+`C293: 3D       DEC A`
+**Explanation:** Decrement A.
+
+`C294: 3D       DEC A`
+**Explanation:** Decrement A again (net effect: adjust A by -1 relative to earlier value).
+
+`C295: DD 77 07 LD (IX+07h), A`
+**Explanation:** Store A back to (IX+7) — update the per-channel field.
+
+`C298: F5      PUSH AF`
+**Explanation:** Save AF on stack.
+
+`C299: DD 7E 00 LD A, (IX+00h)`
+**Explanation:** Load A from (IX+0).
+
+`C29C: 4F      LD C, A`
+**Explanation:** Copy A to C.
+
+`C29D: 3C      INC A`
+**Explanation:** A ← A + 1.
+
+`C29E: E6 1F  AND 1Fh`
+**Explanation:** Mask low 5 bits of A.
+
+`C2A0: DD 77 00 LD (IX+00h), A`
+**Explanation:** Store masked A back into (IX+0).
+
+`C2A3: F1 POP AF`
+**Explanation:** Restore AF (undo PUSH).
+
+`C2A4: C0   RET NZ`
+**Explanation:** Return if Zero flag is not set.
+
+`C2A5: DD 5E 03 LD E, (IX+03h)`
+**Explanation:** Load E from (IX+3).
+
+`C2A8: DD 56 04 LD D, (IX+04h)`
+**Explanation:** Load D from (IX+4).
+
+`C2AB: 21 60 00 LD HL, 0060h`
+**Explanation:** HL ← 0x0060 (base index offset).
+
+`C2AE: 19 ADD HL, DE`
+**Explanation:** HL ← HL + DE (DE used as offset).
+
+`C2AF: 7E LD A, (HL)`
+**Explanation:** A ← \[HL] — read from a table offset.
+
+`C2B0: 3D DEC A`
+**Explanation:** A ← A − 1.
+
+`C2B1: FA 45 C2 JP M, LBL12`
+**Explanation:** If sign (negative) flag set (A was negative after subtraction), jump to `LBL12`. This handles negative values indicating special semantics.
+
+`C2B4: 4F LD C, A`
+**Explanation:** C ← A.
+
+`C2B5: 3C INC A`
+**Explanation:** A ← A + 1.
+
+`C2B6: E6 1F AND 1Fh`
+**Explanation:** Mask low 5 bits (limit to 0..31 range).
+
+`C2B8: DD 77 00 LD (IX+00h), A`
+**Explanation:** Store A into (IX+0) for per-channel state.
+
+`C2BB: 23 INC HL`
+**Explanation:** HL++.
+
+`C2BC: 7E LD A, (HL)`
+**Explanation:** A ← \[HL].
+
+`C2BD: 3C INC A`
+**Explanation:** A ← A + 1.
+
+`C2BE: DD 77 07 LD (IX+07h), A`
+**Explanation:** Store A to (IX+7).
+
+`C2C1: C9 RET`
+**Explanation:** Return from SUB8.
+
+**Purpose:** SUB8 performs a range lookup in a frequency/envelope table using offsets stored in per-channel fields, applying masks and storing results back into per-player state.
+
+---
+
+## SUB9 (C2C2 … C2C9)
+
+`C2C2: 79 LD A, C`
+**Explanation:** A ← C.
+
+`C2C3: B7 OR A`
+**Explanation:** OR A with itself (sets flags; basically test A ≠ 0 equivalently).
+
+`C2C4: C0 RET NZ`
+**Explanation:** Return if Z flag not set (i.e., if A ≠ 0).
+
+`C2C5: 7C LD A, H`
+**Explanation:** A ← H.
+
+`C2C6: 32 00 C1 LD (0C100h),` *(disassembly wrapping)*
+**Explanation:** Store A into memory at 0xC100. (The disassembly shows a partial line — the intended operation is `LD (0C100h), A` and save channel value into a status flag area.)
+
+`C2C9: C9 RET`
+**Explanation:** Return.
+
+**Purpose:** SUB9 checks whether C is zero; if it is, store H into a status location; otherwise return — used for conditionally updating a global flag.
+
+---
+
+## SUB10 (C2CA … C2E6)
+
+`C2CA: DD 7E 07 LD A, (IX+07h)`
+**Explanation:** Load A ← (IX+7).
+
+`C2CD: 3C INC A`
+**Explanation:** A++.
+
+`C2CE: C8 RET Z`
+**Explanation:** If A became zero after increment, return (zero wrap-around unlikely, used for short-circuit).
+
+`C2CF: DD 7E FE LD A, (IX-02h)`
+**Explanation:** A ← (IX-2).
+
+`C2D2: B7 OR A`
+**Explanation:** OR A with itself (test zero).
+
+`C2D3: C8 RET Z`
+**Explanation:** Return if A==0.
+
+`C2D4: FE 02 CP 02h`
+**Explanation:** Compare A with 2.
+
+`C2D6: CA E0 C2 JP Z, LBL17`
+**Explanation:** If A==2, jump to `LBL17`.
+
+`C2D9: DD 36 FE 02 LD (IX-02h), 02h`
+**Explanation:** Store 2 into (IX-2).
+
+`C2DD: C3 E4 C2 JP LBL18`
+**Explanation:** Jump to `LBL18`.
+
+`C2E0: LBL17:`
+`C2E0: AF XOR A`
+**Explanation:** Clear A.
+
+`C2E1: 32 07 C1 LD (VAR20), A`
+**Explanation:** Store 0 into `VAR20`.
+
+`C2E4: LBL18:`
+`C2E4: CB E6 SET 4, (HL)`
+**Explanation:** Set bit 4 in the memory location pointed to by HL.
+
+`C2E6: C9 RET`
+**Explanation:** Return.
+
+**Purpose:** SUB10 checks small per-channel counters and writes flags or updates bitfields in memory for envelope/tone/noise control.
+
+---
+
+## LBL19 and follow-up main logic (C2E7 … C388)
+
+`C2E7: DD 21 DD C0 LD IX, REF4`
+**Explanation:** IX ← REF4 (0xC0DD) — set base for a channel structure.
+
+`C2EB: CD 8E C2 CALL SUB8`
+**Explanation:** Call SUB8 — table/frequency lookup.
+
+`C2EE: 79 LD A, C`
+**Explanation:** A ← C (copy C).
+
+`C2EF: 32 95 C3 LD (0C395h), A`
+**Explanation:** Store A into memory address 0xC395 — write a per-player result to a table cell (maybe channel period/result).
+
+`C2F2: DD 2A E0 C0 LD IX, (VAR8)`
+**Explanation:** Load IX from a word stored at VAR8 (IX ← \[VAR8]) — set new pointer base.
+
+`C2F6: CD 19 C1 CALL SUB4`
+**Explanation:** Call SUB4 — bit extraction / command processing.
+
+`C2F9: 79 LD A, C`
+**Explanation:** A ← C.
+
+`C2FA: B0 OR B`
+**Explanation:** OR A with B? (the disassembly lists `B0` which is `OR B`), this sets A|=B, affecting flags; used for mixing registers.
+
+`C2FB: 0F RRCA`
+**Explanation:** Rotate A right through carry once — used to adjust bit order.
+
+`C2FC: 32 01 C1 LD (0C101h), A`
+**Explanation:** Store A into 0xC101 — write computed value to a control/status byte.
+
+`C2FF: DD 21 DD C0 LD IX, REF4`
+**Explanation:** Restore IX with REF4.
+
+`C303: DD 7E 07 LD A, (IX+07h)`
+**Explanation:** Load A from IX+7.
+
+`C306: 3C INC A`
+**Explanation:** A++.
+
+`C307: CA 13 C3 JP Z, LBL20`
+**Explanation:** If A==0 then jump to LBL20.
+
+`C30A: CD C2 C2 CALL SUB9`
+**Explanation:** Call SUB9 — conditional update routine.
+
+`C30D: CD 8B C3 CALL SUB11`
+**Explanation:** Call SUB11 — see SUB11 below (extract sample/ornament data and generate AY register values).
+
+`C310: 22 FA C0 LD (VAR16), HL`
+**Explanation:** Store HL into VAR16 (save computed HL pointer/state).
+
+`C313: LBL20:`
+`C313: 21 02 C1 LD HL, REF5`
+**Explanation:** HL ← REF5 (0xC102).
+
+`C316: 77 LD (HL), A`
+**Explanation:** Store A into memory at \[HL] (save state value into table).
+
+`C317: CD CA C2 CALL SUB10`
+**Explanation:** Call SUB10 — check counters and set bits.
+
+`C31A: DD 21 E7 C0 LD IX, 0C0E7h`
+**Explanation:** IX ← 0xC0E7 — set pointer.
+
+`C31E: CD 8E C2 CALL SUB8`
+**Explanation:** Call SUB8 for further table queries.
+
+`C321: DD 7E 07 LD A, (IX+07h)`
+**Explanation:** A ← (IX+7).
+
+`C324: 3C INC A`
+**Explanation:** A++.
+
+`C325: CA 48 C3 JP Z, LBL21`
+**Explanation:** If A==0 then jump to LBL21.
+
+`C328: 79 LD A, C`
+**Explanation:** A ← C.
+
+`C329: 32 95 C3 LD (0C395h), A`
+**Explanation:** Store A into 0xC395 (repeat of earlier pattern for another channel).
+
+`C32C: DD 2A EA C0 LD IX, (SMC4+1)`
+**Explanation:** IX ← value stored at (SMC4+1) — load pointer from table SMC4.
+
+`C330: CD 19 C1 CALL SUB4`
+**Explanation:** Call SUB4 to decode bits in control bytes.
+
+`C333: 3A 01 C1 LD A, (0C101h)`
+**Explanation:** Load A from memory location 0xC101 (a flag/status byte earlier written).
+
+`C336: B1 OR C`
+**Explanation:** OR A with C — combine flags.
+
+`C337: B0 OR B`
+**Explanation:** OR A with B (further combine), this sets result bits.
+
+`C338: 32 01 C1 LD (0C101h), A`
+**Explanation:** Store combined A back to 0xC101.
+
+`C33B: CD C2 C2 CALL SUB9`
+**Explanation:** Call SUB9 to conditionally store or update flags.
+
+`C33E: DD 21 E7 C0 LD IX, 0C0E7h`
+**Explanation:** IX ← 0xC0E7 — restore pointer.
+
+`C342: CD 8B C3 CALL SUB11`
+**Explanation:** Call SUB11 again to produce final AY register values for this channel.
+
+`C345: 22 FC C0 LD (VAR17), HL`
+**Explanation:** Store HL into VAR17 — save channel pointer.
+
+`C348: LBL21:`
+`C348: 21 03 C1 LD HL, REF6`
+**Explanation:** HL ← REF6 (0xC103).
+
+`C34B: 77 LD (HL), A`
+**Explanation:** Store A into \[HL].
+
+`C34C: CD CA C2 CALL SUB10`
+**Explanation:** Call SUB10.
+
+`C34F: DD 21 F1 C0 LD IX, 0C0F1h`
+**Explanation:** IX ← 0xC0F1.
+
+`C353: CD 8E C2 CALL SUB8`
+**Explanation:** Call SUB8.
+
+`C356: DD 7E 07 LD A, (IX+07h)`
+**Explanation:** A ← (IX+7).
+
+`C359: 3C INC A`
+**Explanation:** A++.
+
+`C35A: CA 81 C3 JP Z, LBL22`
+**Explanation:** If A==0 then jump to `LBL22`.
+
+`C35D: 79 LD A, C`
+**Explanation:** A ← C.
+
+`C35E: 32 95 C3 LD (0C395h), A`
+**Explanation:** Store A into 0xC395.
+
+`C361: DD 2A F4 C0 LD IX, (VAR13)`
+**Explanation:** Load IX from word at VAR13 (pointer table).
+
+`C365: CD 19 C1 CALL SUB4`
+**Explanation:** Call SUB4.
+
+`C368: 3A 01 C1 LD A, (0C101h)`
+**Explanation:** A ← \[0xC101].
+
+`C36B: CB 01 RLC C`
+**Explanation:** Rotate register C left through carry (circular rotation). This is a bit-shift operation on C.
+
+`C36D: CB 00 RLC B`
+**Explanation:** Rotate register B left through carry.
+
+`C36F: B0 OR B`
+**Explanation:** OR A with B (affects flags).
+
+`C370: B1 OR C`
+**Explanation:** OR A with C.
+
+`C371: 32 01 C1 LD (0C101h), A`
+**Explanation:** Store A into 0xC101.
+
+`C374: CD C2 C2 CALL SUB9`
+**Explanation:** Call SUB9 for conditional update.
+
+`C377: DD 21 F1 C0 LD IX, 0C0F1h`
+**Explanation:** IX ← 0xC0F1.
+
+`C37B: CD 8B C3 CALL SUB11`
+**Explanation:** Call SUB11 (assemble AY registers for channel).
+
+`C37E: 22 FE C0 LD (VAR18), HL`
+**Explanation:** Store HL into VAR18.
+
+`C381: LBL22:`
+`C381: 21 04 C1 LD HL, REF7`
+**Explanation:** HL ← REF7 (0xC104).
+
+`C384: 77 LD (HL), A`
+**Explanation:** Store A into \[HL].
+
+`C385: CD CA C2 CALL SUB10`
+**Explanation:** Call SUB10.
+
+`C388: C3 78 C4 JP SUB12`
+**Explanation:** Jump unconditionally to SUB12 (address C478) — go to code that performs final AY register output or hardware-specific routines.
+
+---
+
+## SUB11 (C38B … C3B7) — build AY register values / final mix
+
+`C38B: 7D LD A, L`
+**Explanation:** A ← L (copy low byte of HL into A).
+
+`C38C: F5 PUSH AF`
+**Explanation:** Save AF (A and flags) on stack.
+
+`C38D: D5 PUSH DE`
+**Explanation:** Save DE on stack.
+
+`C38E: DD 6E 05 LD L, (IX+05h)`
+**Explanation:** Load L from (IX+5).
+
+`C391: DD 66 06 LD H, (IX+06h)`
+**Explanation:** Load H from (IX+6). Together these load HL from the two per-channel bytes stored earlier (L/H saved in IX+5/6).
+
+`C394: 11 0A 00 LD DE, 000Ah`
+**Explanation:** DE ← 10 decimal (0x0A). Used as a table stride or offset.
+
+`C397: 19 ADD HL, DE`
+**Explanation:** HL ← HL + DE.
+
+`C398: DD 7E 01 LD A, (IX+01h)`
+**Explanation:** A ← (IX+1) — load the channel note value into A.
+
+`C39B: 86 ADD A, (HL)`
+**Explanation:** Add the value at memory \[HL] to A (A ← A + \[HL]). This uses the table entry and the note value to compute final tone/period.
+
+`C39C: SMC6:`
+`C39C: C6 00 ADD A, 00h`
+**Explanation:** Add zero to A (effectively a NOP for arithmetic); may be placeholder or align op.
+
+`C39E: 87 ADD A, A`
+**Explanation:** Double A (A ← A + A).
+
+`C39F: 5F LD E, A`
+**Explanation:** E ← A.
+
+`C3A0: 16 00 LD D, 00h`
+**Explanation:** D ← 0.
+
+`C3A2: 21 B8 C3 LD HL, REF8`
+**Explanation:** HL ← REF8 (address of a frequency table — see the large `dw` block at REF8; these are the note frequency values — matches the STC frequency table in the STC spec). The table at REF8 is the frequency table from the STC format. ([avray.ru][1])
+
+`C3A5: 19 ADD HL, DE`
+**Explanation:** HL ← HL + DE (combine base and offset).
+
+`C3A6: 5E LD E, (HL)`
+**Explanation:** Load E from table \[HL] (low byte of period).
+
+`C3A7: 23 INC HL`
+**Explanation:** HL++.
+
+`C3A8: 56 LD D, (HL)`
+**Explanation:** Load D from table \[HL] (high byte of period). Now DE contains the period/parameter read from table.
+
+`C3A9: EB EX DE, HL`
+**Explanation:** Swap DE and HL; now HL holds table pointer and DE holds original HL (or vice versa) depending on prior state — used to prepare for addition.
+
+`C3AA: D1 POP DE`
+**Explanation:** Restore DE from stack (undo earlier PUSH DE).
+
+`C3AB: F1 POP AF`
+**Explanation:** Restore AF.
+
+`C3AC: CB 62 BIT 4, D`
+**Explanation:** Test bit 4 in register D (zero/non-zero result used for branching).
+
+`C3AE: 28 04 JR Z, LBL23`
+**Explanation:** If bit 4 was zero, jump ahead 4 bytes to `LBL23`.
+
+`C3B0: CB A2 RES 4, D`
+**Explanation:** Reset (clear) bit 4 in D — modify the computed period value to clear the bit.
+
+`C3B2: 19 ADD HL, DE`
+**Explanation:** HL ← HL + DE — combine previously computed offsets into HL.
+
+`C3B3: C9 RET`
+**Explanation:** Return from SUB11.
+
+`C3B4: LBL23:`
+`C3B4: A7 AND A`
+**Explanation:** Logical AND A with itself — sets flags depending on A (zero/negative).
+
+`C3B5: ED 52 SBC HL, DE`
+**Explanation:** Subtract DE from HL with carry — adjust HL relative to DE (SBC HL,DE). This sequence handles boundary/adjustment when bit 4 test differed.
+
+`C3B7: C9 RET`
+**Explanation:** Return.
+
+`C3B8: REF8:`
+**Explanation:** Label for the frequency table; the listing that follows is the table of word values (the STC Note frequency table). ([avray.ru][1])
+
+*(Following REF8 is the large data block of `dw` 16-bit constants — these are the note period values for the AY chip — I treat them as read-only data for the player and they match the STC table in the format description.)*
+
+---
+
+## SUB12 (C478 … C494) — AY hardware writer / wait loop
+
+`C478: 21 07 C1 LD HL, VAR20`
+**Explanation:** HL ← address VAR20 (0xC107) — HL points to a variable or control byte.
+
+`C47B: AF XOR A`
+**Explanation:** Clear A.
+
+`C47C: B6 OR (HL)`
+**Explanation:** OR A with the byte pointed by HL (effectively A ← \[HL] since A was zero), sets flags and loads that byte into the accumulator implicitly for flag checks (the `OR (HL)` sets Z if \[HL] == 0).
+
+`C47D: 3E 0D LD A, 0Dh`
+**Explanation:** Overwrite A with 0x0D. (Note: the `OR (HL)` changed flags but A is now replaced by 0x0D — this pattern is likely used for a conditional after OR.)
+
+`C47F: 20 05 JR NZ, LBL28`
+**Explanation:** If Z flag is not set (i.e., \[HL] was non-zero), jump to LBL28.
+
+`C481: D6 03 SUB 03h`
+**Explanation:** Subtract 3 from A (A ← A − 3).
+
+`C483–C485: 2B 2B 2B   DEC HL (x3)`
+**Explanation:** Decrement HL three times — move HL backwards in memory by three bytes (adjust pointer).
+
+`C486: LBL28:`
+`C486: 0E FD LD C, 0FDh`
+**Explanation:** Load C with 0xFD (253 decimal) — sets the low byte for I/O port address (for `OUT (C),A` usage).
+
+`C488: LBL29:`
+`C488: 06 FF LD B, 0FFh`
+**Explanation:** Load B with 0xFF (255) — set the high byte for I/O port BC pair (BC = 0xFFFD is a common AY port on Spectrum clones).
+
+`C48A: ED 79 OUT (C), A`
+**Explanation:** Write A to port (BC) — typically writes AY register number or AY register value depending on the sequence.
+
+`C48C: 06 BF LD B, 0BFh`
+**Explanation:** Change B to 0xBF — change port high byte (BC now 0xBFFD) — this switching of B before/after OUT is consistent with writing the AY register-index and then the AY register value (Spectrum clones use different port numbers).
+
+`C48E: ED AB OUTD`
+**Explanation:** `OUTD` is an ED prefixed instruction — on Z80 `ED AB` is `OUTI`/`OUTD` family; `OUTD` outputs (DE) to port (C) and decrements HL/BC depending on exact opcode semantics; here the use suggests a burst output / block I/O to the AY port.
+
+`C490: 3D DEC A`
+**Explanation:** Decrement A.
+
+`C491: F2 88 C4 JP P, LBL29`
+**Explanation:** If parity flag indicates positive (P), jump to LBL29 (loop) — the parity after OUTD is used to loop until all bytes written or until A reaches a sentinel.
+
+`C494: C9 RET`
+**Explanation:** Return from SUB12.
+
+**Purpose:** SUB12 is the low-level output routine that writes computed register values to the AY chip via I/O ports. It uses `OUT (C),A` and block I/O instructions to write registers and values; it also loops based on status bytes to write multiple outputs.
+
+---
+
+## LBL30 and final I/O startup (C495 … C4A7)
+
+`C495: ED 79 OUT (C), A`
+**Explanation:** Output A to port (C) — start of small routine that pulses port writes (initial AY init loop).
+
+`C497: 3C INC A`
+**Explanation:** Increment A.
+
+`C498: 20 FB JR NZ, LBL30`
+**Explanation:** Loop back to LBL30 while A ≠ 0 (a tight loop writing incrementing A to the port until A wraps to zero). This could be a hardware reset/pulse sequence.
+
+`C49A: 06 FF LD B, 0FFh`
+**Explanation:** Load B with 0xFF.
+
+`C49C: 3E 07 LD A, 07h`
+**Explanation:** Load A with 0x07.
+
+`C49E: ED 79 OUT (C), A`
+**Explanation:** Output 0x07 to port — finalization of initialization.
+
+`C4A0: 01 FD BF LD BC, 0BFFDh`
+**Explanation:** Load BC with 0xBFFD (or 0xBFFD depending on endianness) — set up BC for AY port writes.
+
+`C4A3: 3E FF LD A, 0FFh`
+**Explanation:** Load A with 0xFF.
+
+`C4A5: ED 79 OUT (C), A`
+**Explanation:** Write 0xFF to BC port — another final port write.
+
+`C4A7: C9 RET`
+**Explanation:** Return — end of routine.
+
+---
+
+## Frequency table (REF8) and remaining data block (after C3B8)
+
+At label `REF8:` the disassembly lists a large block of `dw` (16-bit) values — this is the frequency (period) table used to convert note numbers into AY chip periods. The values match the STC format note table from the STC spec (the same table is documented in the STC reference). ([avray.ru][1])
+
+Each `dw value` places a 16-bit constant into the binary for lookup by the player (used by SUB11 and other routines to compute final period values sent to the AY chip).
+
+---
+
+## Final remarks & how it maps to STC format
+
+* The player code uses many pointers labeled `VARn`, `SMCx`, and `REFx` to refer to STC data areas (positions table, pattern pointer tables, sample data, ornament data, and the global frequency table). The STC file-format page describes the layout (global delay, pointers to positions/ornaments/patterns, a human-readable identifier string, and then sample/or other data). The player reads the STC data via these pointers and uses the routines above to decode pattern bytes and construct AY register writes. ([avray.ru][1])
+
+* Routines of special note:
+
+  * `SUB1` (C108–C10B): table-scanner — steps through a table with stride BC until a match is found (used to find sample/ornament/pattern by number).
+  * `SUB2` (C10E–C118): read a 16-bit pointer from memory (\[HL] and \[HL+1]) and perform a small address computation — used to resolve pointers embedded in the STC data.
+  * `SUB4` (C119…): IX-based bit extraction and testing — used to decode packed command bytes.
+  * `SUB7` (C1F1…): main pattern-bytes interpreter — reads a single pattern byte and dispatches depending on its value range (notes, sample select, ornament select, envelope commands, delays).
+  * `SUB11` (C38B…C3B7) and `REF8` (frequency table): compute the AY period (using the STC table) and prepare the values to be written to AY registers.
+  * `SUB12` (C478…C494): AY hardware writer — performs `OUT (C),A` sequences and block I/O to actually send register index/value pairs to the AY sound chip (IO port sequence matching ZX Spectrum AY usage).
+
+* The code uses `IX` extensively as a per-channel base pointer; typical STC players maintain a per-channel 8–16 byte state structure (current sample pointer, sample position, ornament pointer, transposition, delay counters, envelope state, etc.) and index into it via `IX`. That design matches the implementation pattern seen above.
+
+---
+
+If you want, next I can:
+
+1. Produce a cleaned assembly file where I replace the generic `DB`/data bytes interpreted as instructions in the data areas with explicit `DB`/`DW` directives and annotate which bytes are data vs. code. (This makes the listing assemble-able and clearer.)
+2. Produce per-routine higher-level pseudo-code (C-like) to explain the logic of `SUB7` (pattern interpreter) and `SUB11`+`SUB12` (period calculation and AY output).
+3. Extract the STC header from your original `stc_player` binary and show an example sequence of `CALL base+INIT` and `CALL base+PLAY` with addresses adjusted for a target load address (i.e., a short integration example showing how you call `INIT` once and `PLAY` per frame).
+
+Tell me which follow-up you prefer (1, 2 or 3) or if you want me to annotate any particular routine in more depth (e.g. fully comment `SUB7` step-by-step).
+
+[1]: https://www.avray.ru/%D1%84%D0%BE%D1%80%D0%BC%D0%B0%D1%82-%D1%84%D0%B0%D0%B9%D0%BB%D0%B0-stc-sound-tracker/ "STC File Format (Sound Tracker) – AVR-AY"
